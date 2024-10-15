@@ -469,17 +469,17 @@ class MqttController(controler.BaseControler):
             ComponentType.cover: self.CUSTOM_SCHEMA_COVER,
         }
 
-        schema.extend(
+        schema = schema.extend(
             {
                 cv.OnlyWith(self.CONF_MQTT_ID, "mqtt"): cv.declare_id(
                     component_class[component]
                 ),
             }
         )
-        schema.extend(component_schema[component])
+        schema = schema.extend(component_schema[component])
 
         if component in custom_schena:
-            schema.extend(custom_schena[component])
+            schema = schema.extend(custom_schena[component])
 
     async def register_component(self, component: ComponentType, var, config):
         mqtt_id = config.get(self.CONF_MQTT_ID)

@@ -39,7 +39,9 @@ class BaseControler:
 def gen_component_schema(component: ComponentType):
     result = cv.ENTITY_BASE_SCHEMA.extend({})
     for item in CONTROLERS:
-        item.extend_component_schema(component, result)
+        result = result.extend(
+            item.extend_component_schema(component, cv.ENTITY_BASE_SCHEMA.extend({}))
+        )
     return result
 
 

@@ -8,10 +8,6 @@
 #include "esphome/components/api/api_server.h"
 #endif
 
-#ifdef USE_MQTT
-#include "esphome/components/mqtt/mqtt_client.h"
-#endif
-
 namespace esphome {
 
 bool api_is_connected() {
@@ -23,15 +19,18 @@ bool api_is_connected() {
   return false;
 }
 
-bool mqtt_is_connected() {
-#ifdef USE_MQTT
-  if (mqtt::global_mqtt_client != nullptr) {
-    return mqtt::global_mqtt_client->is_connected();
-  }
-#endif
-  return false;
-}
+#ifndef USE_SECONDARY_CONTROLER
 
-bool remote_is_connected() { return api_is_connected() || mqtt_is_connected(); }
+bool is_secondary_controller_connected() { return false; }
+
+#endif
+
+bool remote_is_connected() {
+  return api_is_connected()
+#ifdef USE_SECONDARY_CONTROLER
+         || is_secondary_controller_connected()
+#endif
+      ;
+}
 
 }  // namespace esphome

@@ -23,6 +23,14 @@
 #endif
 
 namespace esphome {
+
+bool is_secondary_controller_connected() {
+  if (mqtt_client::global_mqtt_client != nullptr) {
+    return mqtt_client::global_mqtt_client->is_connected();
+  }
+  return false;
+}
+
 namespace mqtt {
 
 static const char *const TAG = "mqtt";
