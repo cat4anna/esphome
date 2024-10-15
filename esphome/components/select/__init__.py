@@ -1,6 +1,6 @@
-from esphome import automation
+from esphome import automation, controler
 import esphome.codegen as cg
-from esphome.components import mqtt, web_server
+from esphome.components import web_server
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_CYCLE,
@@ -9,13 +9,13 @@ from esphome.const import (
     CONF_ID,
     CONF_INDEX,
     CONF_MODE,
-    CONF_MQTT_ID,
     CONF_ON_VALUE,
     CONF_OPERATION,
     CONF_OPTION,
     CONF_TRIGGER_ID,
     CONF_WEB_SERVER,
 )
+from esphome.controler import ComponentType
 from esphome.core import CORE, coroutine_with_priority
 from esphome.cpp_generator import MockObjClass
 from esphome.cpp_helpers import setup_entity
@@ -50,10 +50,9 @@ SELECT_OPERATION_OPTIONS = {
 
 SELECT_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
-    .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controler.gen_component_schema(ComponentType.select))
     .extend(
         {
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTSelectComponent),
             cv.GenerateID(): cv.declare_id(Select),
             cv.Optional(CONF_ON_VALUE): automation.validate_automation(
                 {
@@ -100,9 +99,7 @@ async def setup_select_core_(var, config, *, options: list[str]):
             trigger, [(cg.std_string, "x"), (cg.size_t, "i")], conf
         )
 
-    if (mqtt_id := config.get(CONF_MQTT_ID)) is not None:
-        mqtt_ = cg.new_Pvariable(mqtt_id, var)
-        await mqtt.register_mqtt_component(mqtt_, config)
+    await controler.setup_component(ComponentType.select, var, config)
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)

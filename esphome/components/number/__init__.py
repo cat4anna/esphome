@@ -1,6 +1,6 @@
-from esphome import automation
+from esphome import automation, controler
 import esphome.codegen as cg
-from esphome.components import mqtt, web_server
+from esphome.components import web_server
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ABOVE,
@@ -11,7 +11,6 @@ from esphome.const import (
     CONF_ICON,
     CONF_ID,
     CONF_MODE,
-    CONF_MQTT_ID,
     CONF_ON_VALUE,
     CONF_ON_VALUE_RANGE,
     CONF_OPERATION,
@@ -70,6 +69,7 @@ from esphome.const import (
     DEVICE_CLASS_WEIGHT,
     DEVICE_CLASS_WIND_SPEED,
 )
+from esphome.controler import ComponentType
 from esphome.core import CORE, coroutine_with_priority
 from esphome.cpp_generator import MockObjClass
 from esphome.cpp_helpers import setup_entity
@@ -172,10 +172,9 @@ validate_unit_of_measurement = cv.string_strict
 
 NUMBER_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
-    .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controler.gen_component_schema(ComponentType.number))
     .extend(
         {
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTNumberComponent),
             cv.Optional(CONF_ON_VALUE): automation.validate_automation(
                 {
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(NumberStateTrigger),
@@ -251,9 +250,8 @@ async def setup_number_core_(
     if (device_class := config.get(CONF_DEVICE_CLASS)) is not None:
         cg.add(var.traits.set_device_class(device_class))
 
-    if (mqtt_id := config.get(CONF_MQTT_ID)) is not None:
-        mqtt_ = cg.new_Pvariable(mqtt_id, var)
-        await mqtt.register_mqtt_component(mqtt_, config)
+    await controler.setup_component(ComponentType.number, var, config)
+
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
 

@@ -1,8 +1,8 @@
 import math
 
-from esphome import automation
+from esphome import automation, controler
 import esphome.codegen as cg
-from esphome.components import mqtt, web_server
+from esphome.components import web_server
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ABOVE,
@@ -11,7 +11,6 @@ from esphome.const import (
     CONF_BELOW,
     CONF_DEVICE_CLASS,
     CONF_ENTITY_CATEGORY,
-    CONF_EXPIRE_AFTER,
     CONF_FILTERS,
     CONF_FORCE_UPDATE,
     CONF_FROM,
@@ -21,7 +20,6 @@ from esphome.const import (
     CONF_MAX_VALUE,
     CONF_METHOD,
     CONF_MIN_VALUE,
-    CONF_MQTT_ID,
     CONF_MULTIPLE,
     CONF_ON_RAW_VALUE,
     CONF_ON_VALUE,
@@ -92,6 +90,7 @@ from esphome.const import (
     DEVICE_CLASS_WIND_SPEED,
     ENTITY_CATEGORY_CONFIG,
 )
+from esphome.controler import ComponentType
 from esphome.core import CORE, coroutine_with_priority
 from esphome.cpp_generator import MockObjClass
 from esphome.cpp_helpers import setup_entity
@@ -259,10 +258,9 @@ validate_device_class = cv.one_of(*DEVICE_CLASSES, lower=True, space="_")
 
 SENSOR_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
-    .extend(cv.MQTT_COMPONENT_SCHEMA)
+    .extend(controler.gen_component_schema(ComponentType.sensor))
     .extend(
         {
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTSensorComponent),
             cv.GenerateID(): cv.declare_id(Sensor),
             cv.Optional(CONF_UNIT_OF_MEASUREMENT): validate_unit_of_measurement,
             cv.Optional(CONF_ACCURACY_DECIMALS): validate_accuracy_decimals,
@@ -273,10 +271,6 @@ SENSOR_SCHEMA = (
                 "last_reset_type has been removed since 2021.9.0. state_class: total_increasing should be used for total values."
             ),
             cv.Optional(CONF_FORCE_UPDATE, default=False): cv.boolean,
-            cv.Optional(CONF_EXPIRE_AFTER): cv.All(
-                cv.requires_component("mqtt"),
-                cv.Any(None, cv.positive_time_period_milliseconds),
-            ),
             cv.Optional(CONF_FILTERS): validate_filters,
             cv.Optional(CONF_ON_VALUE): automation.validate_automation(
                 {
@@ -790,15 +784,7 @@ async def setup_sensor_core_(var, config):
             cg.add(trigger.set_max(template_))
         await automation.build_automation(trigger, [(float, "x")], conf)
 
-    if (mqtt_id := config.get(CONF_MQTT_ID)) is not None:
-        mqtt_ = cg.new_Pvariable(mqtt_id, var)
-        await mqtt.register_mqtt_component(mqtt_, config)
-
-        if (expire_after := config.get(CONF_EXPIRE_AFTER, _UNDEF)) is not _UNDEF:
-            if expire_after is None:
-                cg.add(mqtt_.disable_expire_after())
-            else:
-                cg.add(mqtt_.set_expire_after(expire_after))
+    await controler.setup_component(ComponentType.sensor, var, config)
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)

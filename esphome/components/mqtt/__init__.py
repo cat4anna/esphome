@@ -1,13 +1,16 @@
 import re
 
-from esphome import automation
+from esphome import automation, controler
 from esphome.automation import Condition
 import esphome.codegen as cg
 from esphome.components import logger
 from esphome.components.esp32 import add_idf_sdkconfig_option
 import esphome.config_validation as cv
 from esphome.const import (
+    CONF_ACTION_STATE_TOPIC,
     CONF_AVAILABILITY,
+    CONF_AWAY_COMMAND_TOPIC,
+    CONF_AWAY_STATE_TOPIC,
     CONF_BIRTH_MESSAGE,
     CONF_BROKER,
     CONF_CERTIFICATE_AUTHORITY,
@@ -17,30 +20,59 @@ from esphome.const import (
     CONF_CLIENT_ID,
     CONF_COMMAND_RETAIN,
     CONF_COMMAND_TOPIC,
+    CONF_CURRENT_HUMIDITY_STATE_TOPIC,
+    CONF_CURRENT_TEMPERATURE_STATE_TOPIC,
     CONF_DISCOVERY,
     CONF_DISCOVERY_OBJECT_ID_GENERATOR,
     CONF_DISCOVERY_PREFIX,
     CONF_DISCOVERY_RETAIN,
     CONF_DISCOVERY_UNIQUE_ID_GENERATOR,
+    CONF_EXPIRE_AFTER,
+    CONF_FAN_MODE_COMMAND_TOPIC,
+    CONF_FAN_MODE_STATE_TOPIC,
     CONF_ID,
     CONF_KEEPALIVE,
     CONF_LEVEL,
     CONF_LOG_TOPIC,
+    CONF_MODE_COMMAND_TOPIC,
+    CONF_MODE_STATE_TOPIC,
     CONF_ON_CONNECT,
     CONF_ON_DISCONNECT,
     CONF_ON_JSON_MESSAGE,
     CONF_ON_MESSAGE,
+    CONF_OSCILLATION_COMMAND_TOPIC,
+    CONF_OSCILLATION_STATE_TOPIC,
     CONF_PASSWORD,
     CONF_PAYLOAD,
     CONF_PAYLOAD_AVAILABLE,
     CONF_PAYLOAD_NOT_AVAILABLE,
     CONF_PORT,
+    CONF_POSITION_COMMAND_TOPIC,
+    CONF_POSITION_STATE_TOPIC,
+    CONF_PRESET_COMMAND_TOPIC,
+    CONF_PRESET_STATE_TOPIC,
     CONF_QOS,
     CONF_REBOOT_TIMEOUT,
     CONF_RETAIN,
     CONF_SHUTDOWN_MESSAGE,
+    CONF_SPEED_COMMAND_TOPIC,
+    CONF_SPEED_LEVEL_COMMAND_TOPIC,
+    CONF_SPEED_LEVEL_STATE_TOPIC,
+    CONF_SPEED_STATE_TOPIC,
     CONF_SSL_FINGERPRINTS,
     CONF_STATE_TOPIC,
+    CONF_SWING_MODE_COMMAND_TOPIC,
+    CONF_SWING_MODE_STATE_TOPIC,
+    CONF_TARGET_HUMIDITY_COMMAND_TOPIC,
+    CONF_TARGET_HUMIDITY_STATE_TOPIC,
+    CONF_TARGET_TEMPERATURE_COMMAND_TOPIC,
+    CONF_TARGET_TEMPERATURE_HIGH_COMMAND_TOPIC,
+    CONF_TARGET_TEMPERATURE_HIGH_STATE_TOPIC,
+    CONF_TARGET_TEMPERATURE_LOW_COMMAND_TOPIC,
+    CONF_TARGET_TEMPERATURE_LOW_STATE_TOPIC,
+    CONF_TARGET_TEMPERATURE_STATE_TOPIC,
+    CONF_TILT_COMMAND_TOPIC,
+    CONF_TILT_STATE_TOPIC,
     CONF_TOPIC,
     CONF_TOPIC_PREFIX,
     CONF_TRIGGER_ID,
@@ -51,9 +83,11 @@ from esphome.const import (
     PLATFORM_ESP32,
     PLATFORM_ESP8266,
 )
+from esphome.controler import ComponentType
 from esphome.core import CORE, coroutine_with_priority
 
 DEPENDENCIES = ["network"]
+_UNDEF = object()
 
 
 def AUTO_LOAD():
@@ -67,15 +101,87 @@ CONF_IDF_SEND_ASYNC = "idf_send_async"
 CONF_SKIP_CERT_CN_CHECK = "skip_cert_cn_check"
 
 
+def _valid_topic(value):
+    """Validate that this is a valid topic name/filter."""
+    if value is None:  # Used to disable publishing and subscribing
+        return ""
+    if isinstance(value, dict):
+        raise cv.Invalid("Can't use dictionary with topic")
+    value = cv.string(value)
+    try:
+        raw_value = value.encode("utf-8")
+    except UnicodeError as err:
+        raise cv.Invalid("MQTT topic name/filter must be valid UTF-8 string.") from err
+    if not raw_value:
+        raise cv.Invalid("MQTT topic name/filter must not be empty.")
+    if len(raw_value) > 65535:
+        raise cv.Invalid(
+            "MQTT topic name/filter must not be longer than 65535 encoded bytes."
+        )
+    if "\0" in value:
+        raise cv.Invalid("MQTT topic name/filter must not contain null character.")
+    return value
+
+
+def subscribe_topic(value):
+    """Validate that we can subscribe using this MQTT topic."""
+    value = _valid_topic(value)
+    for i in (i for i, c in enumerate(value) if c == "+"):
+        if (i > 0 and value[i - 1] != "/") or (
+            i < len(value) - 1 and value[i + 1] != "/"
+        ):
+            raise cv.Invalid(
+                "Single-level wildcard must occupy an entire level of the filter"
+            )
+
+    index = value.find("#")
+    if index != -1:
+        if index != len(value) - 1:
+            # If there are multiple wildcards, this will also trigger
+            raise cv.Invalid(
+                "Multi-level wildcard must be the last "
+                "character in the topic filter."
+            )
+        if len(value) > 1 and value[index - 1] != "/":
+            raise cv.Invalid(
+                "Multi-level wildcard must be after a topic level separator."
+            )
+
+    return value
+
+
+def publish_topic(value):
+    """Validate that we can publish using this MQTT topic."""
+    value = _valid_topic(value)
+    if "+" in value or "#" in value:
+        raise cv.Invalid("Wildcards can not be used in topic names")
+    return value
+
+
+def mqtt_payload(value):
+    if value is None:
+        return ""
+    return cv.string(value)
+
+
+def mqtt_qos(value):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        # pylint: disable=raise-missing-from
+        raise cv.Invalid(f"MQTT Quality of Service must be integer, got {value}")
+    return cv.one_of(0, 1, 2)(value)
+
+
 def validate_message_just_topic(value):
-    value = cv.publish_topic(value)
+    value = publish_topic(value)
     return MQTT_MESSAGE_BASE({CONF_TOPIC: value})
 
 
 MQTT_MESSAGE_BASE = cv.Schema(
     {
-        cv.Required(CONF_TOPIC): cv.publish_topic,
-        cv.Optional(CONF_QOS, default=0): cv.mqtt_qos,
+        cv.Required(CONF_TOPIC): publish_topic,
+        cv.Optional(CONF_QOS, default=0): mqtt_qos,
         cv.Optional(CONF_RETAIN, default=True): cv.boolean,
     }
 )
@@ -88,9 +194,46 @@ MQTT_MESSAGE_SCHEMA = cv.Any(
     None,
     MQTT_MESSAGE_BASE.extend(
         {
-            cv.Required(CONF_PAYLOAD): cv.mqtt_payload,
+            cv.Required(CONF_PAYLOAD): mqtt_payload,
         }
     ),
+)
+
+
+MQTT_COMPONENT_AVAILABILITY_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_TOPIC): subscribe_topic,
+        cv.Optional(CONF_PAYLOAD_AVAILABLE, default="online"): mqtt_payload,
+        cv.Optional(CONF_PAYLOAD_NOT_AVAILABLE, default="offline"): mqtt_payload,
+    }
+)
+
+MQTT_COMPONENT_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_QOS): cv.All(
+            cv.requires_component("mqtt"), cv.int_range(min=0, max=2)
+        ),
+        cv.Optional(CONF_RETAIN): cv.All(cv.requires_component("mqtt"), cv.boolean),
+        cv.Optional(CONF_DISCOVERY): cv.All(cv.requires_component("mqtt"), cv.boolean),
+        cv.Optional(CONF_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_AVAILABILITY): cv.All(
+            cv.requires_component("mqtt"),
+            cv.Any(None, MQTT_COMPONENT_AVAILABILITY_SCHEMA),
+        ),
+    }
+)
+
+MQTT_COMMAND_COMPONENT_SCHEMA = MQTT_COMPONENT_SCHEMA.extend(
+    {
+        cv.Optional(CONF_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+        cv.Optional(CONF_COMMAND_RETAIN): cv.All(
+            cv.requires_component("mqtt"), cv.boolean
+        ),
+    }
 )
 
 mqtt_ns = cg.esphome_ns.namespace("mqtt")
@@ -145,6 +288,412 @@ MQTT_DISCOVERY_OBJECT_ID_GENERATOR_OPTIONS = {
     "none": MQTTDiscoveryObjectIdGenerator.MQTT_NONE_OBJECT_ID_GENERATOR,
     "device_name": MQTTDiscoveryObjectIdGenerator.MQTT_DEVICE_NAME_OBJECT_ID_GENERATOR,
 }
+
+
+class MqttController(controler.BaseControler):
+    CONF_MQTT_ID = "mqtt_id"
+
+    def __init__(self):
+        pass
+
+    CUSTOM_SCHEMA_VALVE = {
+        cv.Optional(CONF_POSITION_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+        cv.Optional(CONF_POSITION_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+    }
+
+    CUSTOM_SCHEMA_SENSOR = {
+        cv.Optional(CONF_EXPIRE_AFTER): cv.All(
+            cv.requires_component("mqtt"),
+            cv.Any(None, cv.positive_time_period_milliseconds),
+        ),
+    }
+
+    CUSTOM_SCHEMA_FAN = {
+        cv.Optional(CONF_OSCILLATION_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_OSCILLATION_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+        cv.Optional(CONF_SPEED_LEVEL_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_SPEED_LEVEL_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+        cv.Optional(CONF_SPEED_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_SPEED_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+    }
+
+    CUSTOM_SCHEMA_COVER = {
+        cv.Optional(CONF_POSITION_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+        cv.Optional(CONF_POSITION_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+        cv.Optional(CONF_TILT_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+        cv.Optional(CONF_TILT_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), subscribe_topic
+        ),
+    }
+
+    CUSTOM_SCHEMA_CLIMATE = {
+        cv.Optional(CONF_ACTION_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_AWAY_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_AWAY_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_CURRENT_TEMPERATURE_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_CURRENT_HUMIDITY_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_FAN_MODE_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_FAN_MODE_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_MODE_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_MODE_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_PRESET_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_PRESET_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_SWING_MODE_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_SWING_MODE_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_TARGET_TEMPERATURE_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_TARGET_TEMPERATURE_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_TARGET_TEMPERATURE_HIGH_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_TARGET_TEMPERATURE_HIGH_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_TARGET_TEMPERATURE_LOW_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_TARGET_TEMPERATURE_LOW_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_TARGET_HUMIDITY_COMMAND_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+        cv.Optional(CONF_TARGET_HUMIDITY_STATE_TOPIC): cv.All(
+            cv.requires_component("mqtt"), publish_topic
+        ),
+    }
+
+    def extend_component_schema(self, component: ComponentType, schema):
+        component_class = {
+            ComponentType.switch: MQTTSwitchComponent,
+            ComponentType.sensor: MQTTSensorComponent,
+            ComponentType.number: MQTTNumberComponent,
+            ComponentType.alarm_control_panel: MQTTAlarmControlPanelComponent,
+            ComponentType.binary_sensoor: MQTTBinarySensorComponent,
+            ComponentType.button: MQTTButtonComponent,
+            ComponentType.climate: MQTTClimateComponent,
+            ComponentType.cover: MQTTCoverComponent,
+            ComponentType.date: MQTTDateComponent,
+            ComponentType.time: MQTTTimeComponent,
+            ComponentType.date_time: MQTTDateTimeComponent,
+            ComponentType.event: MQTTEventComponent,
+            ComponentType.fan: MQTTFanComponent,
+            ComponentType.light: MQTTJSONLightComponent,
+            ComponentType.lock: MQTTLockComponent,
+            ComponentType.select: MQTTSelectComponent,
+            ComponentType.text: MQTTTextComponent,
+            ComponentType.text_sensor: MQTTTextSensor,
+            ComponentType.update: MQTTUpdateComponent,
+            ComponentType.valve: MQTTValveComponent,
+        }
+
+        component_schema = {
+            ComponentType.switch: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.sensor: MQTT_COMPONENT_SCHEMA,
+            ComponentType.number: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.alarm_control_panel: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.binary_sensoor: MQTT_COMPONENT_SCHEMA,
+            ComponentType.button: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.climate: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.cover: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.date: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.time: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.date_time: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.event: MQTT_COMPONENT_SCHEMA,
+            ComponentType.fan: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.light: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.lock: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.select: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.text: MQTT_COMPONENT_SCHEMA,
+            ComponentType.text_sensor: MQTT_COMPONENT_SCHEMA,
+            ComponentType.update: MQTT_COMMAND_COMPONENT_SCHEMA,
+            ComponentType.valve: MQTT_COMMAND_COMPONENT_SCHEMA,
+        }
+
+        custom_schena = {
+            ComponentType.valve: self.CUSTOM_SCHEMA_VALVE,
+            ComponentType.sensor: self.CUSTOM_SCHEMA_SENSOR,
+            ComponentType.fan: self.CUSTOM_SCHEMA_FAN,
+            ComponentType.climate: self.CUSTOM_SCHEMA_CLIMATE,
+            ComponentType.cover: self.CUSTOM_SCHEMA_COVER,
+        }
+
+        schema.extend(
+            {
+                cv.OnlyWith(self.CONF_MQTT_ID, "mqtt"): cv.declare_id(
+                    component_class[component]
+                ),
+            }
+        )
+        schema.extend(component_schema[component])
+
+        if component in custom_schena:
+            schema.extend(custom_schena[component])
+
+    async def register_component(self, component: ComponentType, var, config):
+        mqtt_id = config.get(self.CONF_MQTT_ID)
+        if not mqtt_id:
+            return
+
+        mqtt_ = cg.new_Pvariable(mqtt_id, var)
+        await register_mqtt_controler_component(mqtt_, config)
+
+        component = component.value
+
+        if component == "sensor":
+            if (expire_after := config.get(CONF_EXPIRE_AFTER, _UNDEF)) is not _UNDEF:
+                if expire_after is None:
+                    cg.add(mqtt_.disable_expire_after())
+                else:
+                    cg.add(mqtt_.set_expire_after(expire_after))
+        elif component == "climate":
+            if (action_state_topic := config.get(CONF_ACTION_STATE_TOPIC)) is not None:
+                cg.add(mqtt_.set_custom_action_state_topic(action_state_topic))
+            if (away_command_topic := config.get(CONF_AWAY_COMMAND_TOPIC)) is not None:
+                cg.add(mqtt_.set_custom_away_command_topic(away_command_topic))
+            if (away_state_topic := config.get(CONF_AWAY_STATE_TOPIC)) is not None:
+                cg.add(mqtt_.set_custom_away_state_topic(away_state_topic))
+            if (
+                current_temperature_state_topic := config.get(
+                    CONF_CURRENT_TEMPERATURE_STATE_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_current_temperature_state_topic(
+                        current_temperature_state_topic
+                    )
+                )
+            if (
+                current_humidity_state_topic := config.get(
+                    CONF_CURRENT_HUMIDITY_STATE_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_current_humidity_state_topic(
+                        current_humidity_state_topic
+                    )
+                )
+            if (
+                fan_mode_command_topic := config.get(CONF_FAN_MODE_COMMAND_TOPIC)
+            ) is not None:
+                cg.add(mqtt_.set_custom_fan_mode_command_topic(fan_mode_command_topic))
+            if (
+                fan_mode_state_topic := config.get(CONF_FAN_MODE_STATE_TOPIC)
+            ) is not None:
+                cg.add(mqtt_.set_custom_fan_mode_state_topic(fan_mode_state_topic))
+            if (mode_command_topic := config.get(CONF_MODE_COMMAND_TOPIC)) is not None:
+                cg.add(mqtt_.set_custom_mode_command_topic(mode_command_topic))
+            if (mode_state_topic := config.get(CONF_MODE_STATE_TOPIC)) is not None:
+                cg.add(mqtt_.set_custom_mode_state_topic(mode_state_topic))
+            if (
+                preset_command_topic := config.get(CONF_PRESET_COMMAND_TOPIC)
+            ) is not None:
+                cg.add(mqtt_.set_custom_preset_command_topic(preset_command_topic))
+            if (preset_state_topic := config.get(CONF_PRESET_STATE_TOPIC)) is not None:
+                cg.add(mqtt_.set_custom_preset_state_topic(preset_state_topic))
+            if (
+                swing_mode_command_topic := config.get(CONF_SWING_MODE_COMMAND_TOPIC)
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_swing_mode_command_topic(swing_mode_command_topic)
+                )
+            if (
+                swing_mode_state_topic := config.get(CONF_SWING_MODE_STATE_TOPIC)
+            ) is not None:
+                cg.add(mqtt_.set_custom_swing_mode_state_topic(swing_mode_state_topic))
+            if (
+                target_temperature_command_topic := config.get(
+                    CONF_TARGET_TEMPERATURE_COMMAND_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_target_temperature_command_topic(
+                        target_temperature_command_topic
+                    )
+                )
+            if (
+                target_temperature_state_topic := config.get(
+                    CONF_TARGET_TEMPERATURE_STATE_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_target_temperature_state_topic(
+                        target_temperature_state_topic
+                    )
+                )
+            if (
+                target_temperature_high_command_topic := config.get(
+                    CONF_TARGET_TEMPERATURE_HIGH_COMMAND_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_target_temperature_high_command_topic(
+                        target_temperature_high_command_topic
+                    )
+                )
+            if (
+                target_temperature_high_state_topic := config.get(
+                    CONF_TARGET_TEMPERATURE_HIGH_STATE_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_target_temperature_high_state_topic(
+                        target_temperature_high_state_topic
+                    )
+                )
+            if (
+                target_temperature_low_command_topic := config.get(
+                    CONF_TARGET_TEMPERATURE_LOW_COMMAND_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_target_temperature_low_command_topic(
+                        target_temperature_low_command_topic
+                    )
+                )
+            if (
+                target_temperature_low_state_topic := config.get(
+                    CONF_TARGET_TEMPERATURE_LOW_STATE_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_target_temperature_state_topic(
+                        target_temperature_low_state_topic
+                    )
+                )
+            if (
+                target_humidity_command_topic := config.get(
+                    CONF_TARGET_HUMIDITY_COMMAND_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_target_humidity_command_topic(
+                        target_humidity_command_topic
+                    )
+                )
+            if (
+                target_humidity_state_topic := config.get(
+                    CONF_TARGET_HUMIDITY_STATE_TOPIC
+                )
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_target_humidity_state_topic(
+                        target_humidity_state_topic
+                    )
+                )
+        elif component == "cover":
+            if (
+                position_state_topic := config.get(CONF_POSITION_STATE_TOPIC)
+            ) is not None:
+                cg.add(mqtt_.set_custom_position_state_topic(position_state_topic))
+            if (
+                position_command_topic := config.get(CONF_POSITION_COMMAND_TOPIC)
+            ) is not None:
+                cg.add(mqtt_.set_custom_position_command_topic(position_command_topic))
+            if (tilt_state_topic := config.get(CONF_TILT_STATE_TOPIC)) is not None:
+                cg.add(mqtt_.set_custom_tilt_state_topic(tilt_state_topic))
+            if (tilt_command_topic := config.get(CONF_TILT_COMMAND_TOPIC)) is not None:
+                cg.add(mqtt_.set_custom_tilt_command_topic(tilt_command_topic))
+        elif component == "fan":
+            if (
+                oscillation_state_topic := config.get(CONF_OSCILLATION_STATE_TOPIC)
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_oscillation_state_topic(oscillation_state_topic)
+                )
+            if (
+                oscillation_command_topic := config.get(CONF_OSCILLATION_COMMAND_TOPIC)
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_oscillation_command_topic(
+                        oscillation_command_topic
+                    )
+                )
+            if (
+                speed_level_state_topic := config.get(CONF_SPEED_LEVEL_STATE_TOPIC)
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_speed_level_state_topic(speed_level_state_topic)
+                )
+            if (
+                speed_level_command_topic := config.get(CONF_SPEED_LEVEL_COMMAND_TOPIC)
+            ) is not None:
+                cg.add(
+                    mqtt_.set_custom_speed_level_command_topic(
+                        speed_level_command_topic
+                    )
+                )
+            if (speed_state_topic := config.get(CONF_SPEED_STATE_TOPIC)) is not None:
+                cg.add(mqtt_.set_custom_speed_state_topic(speed_state_topic))
+            if (
+                speed_command_topic := config.get(CONF_SPEED_COMMAND_TOPIC)
+            ) is not None:
+                cg.add(mqtt_.set_custom_speed_command_topic(speed_command_topic))
+        elif component == "valve":
+            if position_state_topic_config := config.get(CONF_POSITION_STATE_TOPIC):
+                cg.add(
+                    mqtt_.set_custom_position_state_topic(position_state_topic_config)
+                )
+            if position_command_topic_config := config.get(CONF_POSITION_COMMAND_TOPIC):
+                cg.add(
+                    mqtt_.set_custom_position_command_topic(
+                        position_command_topic_config
+                    )
+                )
+
+
+controler.add_secondary_controller(MqttController())
 
 
 def validate_config(value):
@@ -232,9 +781,7 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_DISCOVERY_RETAIN, default=True): cv.boolean,
             cv.Optional(CONF_DISCOVER_IP, default=True): cv.boolean,
-            cv.Optional(
-                CONF_DISCOVERY_PREFIX, default="homeassistant"
-            ): cv.publish_topic,
+            cv.Optional(CONF_DISCOVERY_PREFIX, default="homeassistant"): publish_topic,
             cv.Optional(CONF_DISCOVERY_UNIQUE_ID_GENERATOR, default="legacy"): cv.enum(
                 MQTT_DISCOVERY_UNIQUE_ID_GENERATOR_OPTIONS
             ),
@@ -245,7 +792,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_BIRTH_MESSAGE): MQTT_MESSAGE_SCHEMA,
             cv.Optional(CONF_WILL_MESSAGE): MQTT_MESSAGE_SCHEMA,
             cv.Optional(CONF_SHUTDOWN_MESSAGE): MQTT_MESSAGE_SCHEMA,
-            cv.Optional(CONF_TOPIC_PREFIX, default=lambda: CORE.name): cv.publish_topic,
+            cv.Optional(CONF_TOPIC_PREFIX, default=lambda: CORE.name): publish_topic,
             cv.Optional(CONF_LOG_TOPIC): cv.Any(
                 None,
                 MQTT_MESSAGE_BASE.extend(
@@ -277,8 +824,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ON_MESSAGE): automation.validate_automation(
                 {
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MQTTMessageTrigger),
-                    cv.Required(CONF_TOPIC): cv.subscribe_topic,
-                    cv.Optional(CONF_QOS, default=0): cv.mqtt_qos,
+                    cv.Required(CONF_TOPIC): subscribe_topic,
+                    cv.Optional(CONF_QOS, default=0): mqtt_qos,
                     cv.Optional(CONF_PAYLOAD): cv.string_strict,
                 }
             ),
@@ -287,8 +834,8 @@ CONFIG_SCHEMA = cv.All(
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
                         MQTTJsonMessageTrigger
                     ),
-                    cv.Required(CONF_TOPIC): cv.subscribe_topic,
-                    cv.Optional(CONF_QOS, default=0): cv.mqtt_qos,
+                    cv.Required(CONF_TOPIC): subscribe_topic,
+                    cv.Optional(CONF_QOS, default=0): mqtt_qos,
                 }
             ),
         }
@@ -447,9 +994,9 @@ async def to_code(config):
 MQTT_PUBLISH_ACTION_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.use_id(MQTTClientComponent),
-        cv.Required(CONF_TOPIC): cv.templatable(cv.publish_topic),
-        cv.Required(CONF_PAYLOAD): cv.templatable(cv.mqtt_payload),
-        cv.Optional(CONF_QOS, default=0): cv.templatable(cv.mqtt_qos),
+        cv.Required(CONF_TOPIC): cv.templatable(publish_topic),
+        cv.Required(CONF_PAYLOAD): cv.templatable(mqtt_payload),
+        cv.Optional(CONF_QOS, default=0): cv.templatable(mqtt_qos),
         cv.Optional(CONF_RETAIN, default=False): cv.templatable(cv.boolean),
     }
 )
@@ -476,9 +1023,9 @@ async def mqtt_publish_action_to_code(config, action_id, template_arg, args):
 MQTT_PUBLISH_JSON_ACTION_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.use_id(MQTTClientComponent),
-        cv.Required(CONF_TOPIC): cv.templatable(cv.publish_topic),
+        cv.Required(CONF_TOPIC): cv.templatable(publish_topic),
         cv.Required(CONF_PAYLOAD): cv.lambda_,
-        cv.Optional(CONF_QOS, default=0): cv.templatable(cv.mqtt_qos),
+        cv.Optional(CONF_QOS, default=0): cv.templatable(mqtt_qos),
         cv.Optional(CONF_RETAIN, default=False): cv.templatable(cv.boolean),
     }
 )
@@ -511,7 +1058,7 @@ def get_default_topic_for(data, component_type, name, suffix):
     return f"{data.topic_prefix}/{component_type}/{sanitized_name}/{suffix}"
 
 
-async def register_mqtt_component(var, config):
+async def register_mqtt_controler_component(var, config):
     await cg.register_component(var, {})
 
     if CONF_QOS in config:

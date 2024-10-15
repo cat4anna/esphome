@@ -1,7 +1,7 @@
-from esphome import automation, core
+from esphome import automation, controler, core
 from esphome.automation import Condition, maybe_simple_id
 import esphome.codegen as cg
-from esphome.components import mqtt, web_server
+from esphome.components import web_server
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_DELAY,
@@ -14,7 +14,6 @@ from esphome.const import (
     CONF_INVERTED,
     CONF_MAX_LENGTH,
     CONF_MIN_LENGTH,
-    CONF_MQTT_ID,
     CONF_ON_CLICK,
     CONF_ON_DOUBLE_CLICK,
     CONF_ON_MULTI_CLICK,
@@ -56,6 +55,7 @@ from esphome.const import (
     DEVICE_CLASS_VIBRATION,
     DEVICE_CLASS_WINDOW,
 )
+from esphome.controler import ComponentType
 from esphome.core import CORE, coroutine_with_priority
 from esphome.cpp_generator import MockObjClass
 from esphome.cpp_helpers import setup_entity
@@ -388,13 +388,10 @@ def validate_click_timing(value):
 
 BINARY_SENSOR_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
-    .extend(cv.MQTT_COMPONENT_SCHEMA)
+    .extend(controler.gen_component_schema(ComponentType.binary_sensoor))
     .extend(
         {
             cv.GenerateID(): cv.declare_id(BinarySensor),
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(
-                mqtt.MQTTBinarySensorComponent
-            ),
             cv.Optional(CONF_PUBLISH_INITIAL_STATE): cv.boolean,
             cv.Optional(CONF_DEVICE_CLASS): validate_device_class,
             cv.Optional(CONF_FILTERS): validate_filters,
@@ -539,9 +536,7 @@ async def setup_binary_sensor_core_(var, config):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(trigger, [(bool, "x")], conf)
 
-    if mqtt_id := config.get(CONF_MQTT_ID):
-        mqtt_ = cg.new_Pvariable(mqtt_id, var)
-        await mqtt.register_mqtt_component(mqtt_, config)
+    await controler.setup_component(ComponentType.binary_sensoor, var, config)
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)

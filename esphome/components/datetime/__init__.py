@@ -1,6 +1,6 @@
-from esphome import automation
+from esphome import automation, controler
 import esphome.codegen as cg
-from esphome.components import mqtt, time, web_server
+from esphome.components import time, web_server
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_DATE,
@@ -10,7 +10,6 @@ from esphome.const import (
     CONF_ID,
     CONF_MINUTE,
     CONF_MONTH,
-    CONF_MQTT_ID,
     CONF_ON_TIME,
     CONF_ON_VALUE,
     CONF_SECOND,
@@ -21,6 +20,7 @@ from esphome.const import (
     CONF_WEB_SERVER,
     CONF_YEAR,
 )
+from esphome.controler import ComponentType
 from esphome.core import CORE, coroutine_with_priority
 from esphome.cpp_generator import MockObjClass
 from esphome.cpp_helpers import setup_entity
@@ -71,7 +71,6 @@ def _validate_time_present(config):
 
 _DATETIME_SCHEMA = cv.ENTITY_BASE_SCHEMA.extend(
     web_server.WEBSERVER_SORTING_SCHEMA,
-    cv.MQTT_COMMAND_COMPONENT_SCHEMA,
     cv.Schema(
         {
             cv.Optional(CONF_ON_VALUE): automation.validate_automation(
@@ -89,18 +88,18 @@ def date_schema(class_: MockObjClass) -> cv.Schema:
     schema = cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(class_),
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTDateComponent),
             cv.Optional(CONF_TYPE, default="DATE"): cv.one_of("DATE", upper=True),
         }
     )
-    return _DATETIME_SCHEMA.extend(schema)
+    return _DATETIME_SCHEMA.extend(schema).extend(
+        controler.gen_component_schema(ComponentType.time)
+    )
 
 
 def time_schema(class_: MockObjClass) -> cv.Schema:
     schema = cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(class_),
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTTimeComponent),
             cv.Optional(CONF_TYPE, default="TIME"): cv.one_of("TIME", upper=True),
             cv.Optional(CONF_ON_TIME): automation.validate_automation(
                 {
@@ -109,16 +108,15 @@ def time_schema(class_: MockObjClass) -> cv.Schema:
             ),
         }
     )
-    return _DATETIME_SCHEMA.extend(schema)
+    return _DATETIME_SCHEMA.extend(schema).extend(
+        controler.gen_component_schema(ComponentType.time)
+    )
 
 
 def datetime_schema(class_: MockObjClass) -> cv.Schema:
     schema = cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(class_),
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(
-                mqtt.MQTTDateTimeComponent
-            ),
             cv.Optional(CONF_TYPE, default="DATETIME"): cv.one_of(
                 "DATETIME", upper=True
             ),
@@ -129,15 +127,16 @@ def datetime_schema(class_: MockObjClass) -> cv.Schema:
             ),
         }
     )
-    return _DATETIME_SCHEMA.extend(schema)
+    return _DATETIME_SCHEMA.extend(schema).extend(
+        controler.gen_component_schema(ComponentType.date_time)
+    )
 
 
 async def setup_datetime_core_(var, config):
     await setup_entity(var, config)
 
-    if (mqtt_id := config.get(CONF_MQTT_ID)) is not None:
-        mqtt_ = cg.new_Pvariable(mqtt_id, var)
-        await mqtt.register_mqtt_component(mqtt_, config)
+    await controler.setup_component(ComponentType.date_time, var, config)
+
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
     for conf in config.get(CONF_ON_VALUE, []):

@@ -1,6 +1,7 @@
+from esphome import controler
 import esphome.automation as auto
 import esphome.codegen as cg
-from esphome.components import mqtt, power_supply, web_server
+from esphome.components import power_supply, web_server
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_BLUE,
@@ -18,7 +19,6 @@ from esphome.const import (
     CONF_GREEN,
     CONF_ID,
     CONF_INITIAL_STATE,
-    CONF_MQTT_ID,
     CONF_ON_STATE,
     CONF_ON_TURN_OFF,
     CONF_ON_TURN_ON,
@@ -32,6 +32,7 @@ from esphome.const import (
     CONF_WEB_SERVER,
     CONF_WHITE,
 )
+from esphome.controler import ComponentType
 from esphome.core import coroutine_with_priority
 from esphome.cpp_helpers import setup_entity
 
@@ -74,13 +75,10 @@ RESTORE_MODES = {
 
 LIGHT_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
-    .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controler.gen_component_schema(ComponentType.light))
     .extend(
         {
             cv.GenerateID(): cv.declare_id(LightState),
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(
-                mqtt.MQTTJSONLightComponent
-            ),
             cv.Optional(CONF_RESTORE_MODE, default="ALWAYS_OFF"): cv.enum(
                 RESTORE_MODES, upper=True, space="_"
             ),
@@ -208,9 +206,7 @@ async def setup_light_core_(light_var, output_var, config):
         var_ = await cg.get_variable(power_supply_id)
         cg.add(output_var.set_power_supply(var_))
 
-    if (mqtt_id := config.get(CONF_MQTT_ID)) is not None:
-        mqtt_ = cg.new_Pvariable(mqtt_id, light_var)
-        await mqtt.register_mqtt_component(mqtt_, config)
+    await controler.setup_component(ComponentType.light, light_var, config)
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(light_var, web_server_config)

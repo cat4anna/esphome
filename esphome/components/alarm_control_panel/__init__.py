@@ -1,16 +1,16 @@
-from esphome import automation
+from esphome import automation, controler
 from esphome.automation import maybe_simple_id
 import esphome.codegen as cg
-from esphome.components import mqtt, web_server
+from esphome.components import web_server
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_CODE,
     CONF_ID,
-    CONF_MQTT_ID,
     CONF_ON_STATE,
     CONF_TRIGGER_ID,
     CONF_WEB_SERVER,
 )
+from esphome.controler import ComponentType
 from esphome.core import CORE, coroutine_with_priority
 from esphome.cpp_helpers import setup_entity
 
@@ -80,13 +80,10 @@ AlarmControlPanelCondition = alarm_control_panel_ns.class_(
 
 ALARM_CONTROL_PANEL_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
-    .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controler.gen_component_schema(ComponentType.alarm_control_panel))
     .extend(
         {
             cv.GenerateID(): cv.declare_id(AlarmControlPanel),
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(
-                mqtt.MQTTAlarmControlPanelComponent
-            ),
             cv.Optional(CONF_ON_STATE): automation.validate_automation(
                 {
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(StateTrigger),
@@ -197,9 +194,7 @@ async def setup_alarm_control_panel_core_(var, config):
         await automation.build_automation(trigger, [], conf)
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
-    if mqtt_id := config.get(CONF_MQTT_ID):
-        mqtt_ = cg.new_Pvariable(mqtt_id, var)
-        await mqtt.register_mqtt_component(mqtt_, config)
+    await controler.setup_component(ComponentType.alarm_control_panel, var, config)
 
 
 async def register_alarm_control_panel(var, config):

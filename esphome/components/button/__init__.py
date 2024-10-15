@@ -1,14 +1,13 @@
-from esphome import automation
+from esphome import automation, controler
 from esphome.automation import maybe_simple_id
 import esphome.codegen as cg
-from esphome.components import mqtt, web_server
+from esphome.components import web_server
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_DEVICE_CLASS,
     CONF_ENTITY_CATEGORY,
     CONF_ICON,
     CONF_ID,
-    CONF_MQTT_ID,
     CONF_ON_PRESS,
     CONF_TRIGGER_ID,
     CONF_WEB_SERVER,
@@ -17,6 +16,7 @@ from esphome.const import (
     DEVICE_CLASS_RESTART,
     DEVICE_CLASS_UPDATE,
 )
+from esphome.controler import ComponentType
 from esphome.core import CORE, coroutine_with_priority
 from esphome.cpp_generator import MockObjClass
 from esphome.cpp_helpers import setup_entity
@@ -46,10 +46,9 @@ validate_device_class = cv.one_of(*DEVICE_CLASSES, lower=True, space="_")
 
 BUTTON_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
-    .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controler.gen_component_schema(ComponentType.button))
     .extend(
         {
-            cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTButtonComponent),
             cv.Optional(CONF_DEVICE_CLASS): validate_device_class,
             cv.Optional(CONF_ON_PRESS): automation.validate_automation(
                 {
@@ -93,9 +92,7 @@ async def setup_button_core_(var, config):
     if device_class := config.get(CONF_DEVICE_CLASS):
         cg.add(var.set_device_class(device_class))
 
-    if mqtt_id := config.get(CONF_MQTT_ID):
-        mqtt_ = cg.new_Pvariable(mqtt_id, var)
-        await mqtt.register_mqtt_component(mqtt_, config)
+    await controler.setup_component(ComponentType.button, var, config)
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)

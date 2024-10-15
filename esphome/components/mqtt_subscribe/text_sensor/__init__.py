@@ -1,6 +1,6 @@
 import esphome.codegen as cg
+from esphome.components import mqtt, text_sensor
 import esphome.config_validation as cv
-from esphome.components import text_sensor, mqtt
 from esphome.const import CONF_QOS, CONF_TOPIC
 
 from .. import mqtt_subscribe_ns
@@ -18,8 +18,8 @@ CONFIG_SCHEMA = (
         {
             cv.GenerateID(): cv.declare_id(MQTTSubscribeTextSensor),
             cv.GenerateID(CONF_MQTT_PARENT_ID): cv.use_id(mqtt.MQTTClientComponent),
-            cv.Required(CONF_TOPIC): cv.subscribe_topic,
-            cv.Optional(CONF_QOS, default=0): cv.mqtt_qos,
+            cv.Required(CONF_TOPIC): mqtt.subscribe_topic,
+            cv.Optional(CONF_QOS, default=0): mqtt.mqtt_qos,
         }
     )
     .extend(cv.COMPONENT_SCHEMA)

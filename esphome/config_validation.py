@@ -16,12 +16,8 @@ import esphome.codegen as cg
 from esphome.config_helpers import Extend, Remove
 from esphome.const import (
     ALLOWED_NAME_CHARS,
-    CONF_AVAILABILITY,
-    CONF_COMMAND_RETAIN,
-    CONF_COMMAND_TOPIC,
     CONF_DAY,
     CONF_DISABLED_BY_DEFAULT,
-    CONF_DISCOVERY,
     CONF_ENTITY_CATEGORY,
     CONF_HOUR,
     CONF_ICON,
@@ -32,15 +28,9 @@ from esphome.const import (
     CONF_NAME,
     CONF_PASSWORD,
     CONF_PATH,
-    CONF_PAYLOAD_AVAILABLE,
-    CONF_PAYLOAD_NOT_AVAILABLE,
-    CONF_QOS,
     CONF_REF,
-    CONF_RETAIN,
     CONF_SECOND,
     CONF_SETUP_PRIORITY,
-    CONF_STATE_TOPIC,
-    CONF_TOPIC,
     CONF_TYPE,
     CONF_TYPE_ID,
     CONF_UPDATE_INTERVAL,
@@ -1176,76 +1166,6 @@ def ipv4(value):
     return IPAddress(*parts_)
 
 
-def _valid_topic(value):
-    """Validate that this is a valid topic name/filter."""
-    if value is None:  # Used to disable publishing and subscribing
-        return ""
-    if isinstance(value, dict):
-        raise Invalid("Can't use dictionary with topic")
-    value = string(value)
-    try:
-        raw_value = value.encode("utf-8")
-    except UnicodeError as err:
-        raise Invalid("MQTT topic name/filter must be valid UTF-8 string.") from err
-    if not raw_value:
-        raise Invalid("MQTT topic name/filter must not be empty.")
-    if len(raw_value) > 65535:
-        raise Invalid(
-            "MQTT topic name/filter must not be longer than 65535 encoded bytes."
-        )
-    if "\0" in value:
-        raise Invalid("MQTT topic name/filter must not contain null character.")
-    return value
-
-
-def subscribe_topic(value):
-    """Validate that we can subscribe using this MQTT topic."""
-    value = _valid_topic(value)
-    for i in (i for i, c in enumerate(value) if c == "+"):
-        if (i > 0 and value[i - 1] != "/") or (
-            i < len(value) - 1 and value[i + 1] != "/"
-        ):
-            raise Invalid(
-                "Single-level wildcard must occupy an entire level of the filter"
-            )
-
-    index = value.find("#")
-    if index != -1:
-        if index != len(value) - 1:
-            # If there are multiple wildcards, this will also trigger
-            raise Invalid(
-                "Multi-level wildcard must be the last "
-                "character in the topic filter."
-            )
-        if len(value) > 1 and value[index - 1] != "/":
-            raise Invalid("Multi-level wildcard must be after a topic level separator.")
-
-    return value
-
-
-def publish_topic(value):
-    """Validate that we can publish using this MQTT topic."""
-    value = _valid_topic(value)
-    if "+" in value or "#" in value:
-        raise Invalid("Wildcards can not be used in topic names")
-    return value
-
-
-def mqtt_payload(value):
-    if value is None:
-        return ""
-    return string(value)
-
-
-def mqtt_qos(value):
-    try:
-        value = int(value)
-    except (TypeError, ValueError):
-        # pylint: disable=raise-missing-from
-        raise Invalid(f"MQTT Quality of Service must be integer, got {value}")
-    return one_of(0, 1, 2)(value)
-
-
 def requires_component(comp):
     """Validate that this option can only be specified when the component `comp` is loaded."""
 
@@ -1882,33 +1802,6 @@ ENTITY_CATEGORIES = {
 def entity_category(value):
     return enum(ENTITY_CATEGORIES, lower=True)(value)
 
-
-MQTT_COMPONENT_AVAILABILITY_SCHEMA = Schema(
-    {
-        Required(CONF_TOPIC): subscribe_topic,
-        Optional(CONF_PAYLOAD_AVAILABLE, default="online"): mqtt_payload,
-        Optional(CONF_PAYLOAD_NOT_AVAILABLE, default="offline"): mqtt_payload,
-    }
-)
-
-MQTT_COMPONENT_SCHEMA = Schema(
-    {
-        Optional(CONF_QOS): All(requires_component("mqtt"), int_range(min=0, max=2)),
-        Optional(CONF_RETAIN): All(requires_component("mqtt"), boolean),
-        Optional(CONF_DISCOVERY): All(requires_component("mqtt"), boolean),
-        Optional(CONF_STATE_TOPIC): All(requires_component("mqtt"), publish_topic),
-        Optional(CONF_AVAILABILITY): All(
-            requires_component("mqtt"), Any(None, MQTT_COMPONENT_AVAILABILITY_SCHEMA)
-        ),
-    }
-)
-
-MQTT_COMMAND_COMPONENT_SCHEMA = MQTT_COMPONENT_SCHEMA.extend(
-    {
-        Optional(CONF_COMMAND_TOPIC): All(requires_component("mqtt"), subscribe_topic),
-        Optional(CONF_COMMAND_RETAIN): All(requires_component("mqtt"), boolean),
-    }
-)
 
 ENTITY_BASE_SCHEMA = Schema(
     {
