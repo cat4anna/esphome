@@ -1,4 +1,4 @@
-from esphome import automation
+from esphome import automation, controller
 from esphome.automation import maybe_simple_id
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
@@ -35,6 +35,9 @@ from esphome.core import CORE, CoroPriority, coroutine_with_priority
 from esphome.core.entity_helpers import entity_duplicate_validator, setup_entity
 
 IS_PLATFORM_COMPONENT = True
+
+COMPONENT_CLASS = "esphome/fan"
+
 
 fan_ns = cg.esphome_ns.namespace("fan")
 Fan = fan_ns.class_("Fan", cg.EntityBase)
@@ -86,6 +89,7 @@ FanIsOffCondition = fan_ns.class_("FanIsOffCondition", automation.Condition.temp
 _FAN_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.Optional(CONF_RESTORE_MODE, default="ALWAYS_OFF"): cv.enum(
@@ -288,6 +292,8 @@ async def setup_fan_core_(var, config):
     for conf in config.get(CONF_ON_PRESET_SET, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(trigger, [(cg.std_string, "x")], conf)
+
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_fan(var, config):

@@ -1,4 +1,4 @@
-from esphome import automation
+from esphome import automation, controller
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
 import esphome.config_validation as cv
@@ -129,6 +129,8 @@ VISUAL_TEMPERATURE_STEP_SCHEMA = cv.Schema(
     }
 )
 
+COMPONENT_CLASS = "esphome/climate"
+
 
 def visual_temperature_step(value):
     # Allow defining target/current temperature steps separately
@@ -157,6 +159,7 @@ ControlTrigger = climate_ns.class_(
 _CLIMATE_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTClimateComponent),
@@ -435,6 +438,8 @@ async def setup_climate_core_(var, config):
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
+
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_climate(var, config):

@@ -1,4 +1,4 @@
-from esphome import automation
+from esphome import automation, controller
 from esphome.automation import maybe_simple_id
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
@@ -30,6 +30,8 @@ CONF_ON_ARMED_AWAY = "on_armed_away"
 CONF_ON_DISARMED = "on_disarmed"
 CONF_ON_CHIME = "on_chime"
 CONF_ON_READY = "on_ready"
+
+COMPONENT_CLASS = "esphome/alarm_control_panel"
 
 alarm_control_panel_ns = cg.esphome_ns.namespace("alarm_control_panel")
 AlarmControlPanel = alarm_control_panel_ns.class_("AlarmControlPanel", cg.EntityBase)
@@ -84,6 +86,7 @@ AlarmControlPanelCondition = alarm_control_panel_ns.class_(
 _ALARM_CONTROL_PANEL_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(
@@ -226,6 +229,7 @@ async def setup_alarm_control_panel_core_(var, config):
     if mqtt_id := config.get(CONF_MQTT_ID):
         mqtt_ = cg.new_Pvariable(mqtt_id, var)
         await mqtt.register_mqtt_component(mqtt_, config)
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_alarm_control_panel(var, config):

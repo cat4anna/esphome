@@ -1,5 +1,6 @@
 import enum
 
+from esphome import controller
 import esphome.automation as auto
 import esphome.codegen as cg
 from esphome.components import mqtt, power_supply, web_server
@@ -66,6 +67,8 @@ from .types import (  # noqa
 CODEOWNERS = ["@esphome/core"]
 IS_PLATFORM_COMPONENT = True
 
+COMPONENT_CLASS = "esphome/light"
+
 LightRestoreMode = light_ns.enum("LightRestoreMode")
 RESTORE_MODES = {
     "RESTORE_DEFAULT_OFF": LightRestoreMode.LIGHT_RESTORE_DEFAULT_OFF,
@@ -81,6 +84,7 @@ RESTORE_MODES = {
 LIGHT_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.GenerateID(): cv.declare_id(LightState),
@@ -267,6 +271,10 @@ async def setup_light_core_(light_var, output_var, config):
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(light_var, web_server_config)
+
+    await controller.setup_component(
+        COMPONENT_CLASS, light_var, config, output=output_var
+    )
 
 
 async def register_light(output_var, config):

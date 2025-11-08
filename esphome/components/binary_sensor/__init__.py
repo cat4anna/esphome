@@ -1,6 +1,6 @@
 from logging import getLogger
 
-from esphome import automation, core
+from esphome import automation, controller, core
 from esphome.automation import Condition, maybe_simple_id
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
@@ -107,6 +107,7 @@ DEFAULT_DELAY = "1s"
 DEFAULT_TIME_OFF = "100ms"
 DEFAULT_TIME_ON = "900ms"
 
+COMPONENT_CLASS = "esphome/binary_sensor"
 
 binary_sensor_ns = cg.esphome_ns.namespace("binary_sensor")
 BinarySensor = binary_sensor_ns.class_("BinarySensor", cg.EntityBase)
@@ -439,6 +440,7 @@ def validate_publish_initial_state(value):
 _BINARY_SENSOR_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.GenerateID(): cv.declare_id(BinarySensor),
@@ -620,6 +622,8 @@ async def setup_binary_sensor_core_(var, config):
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
+
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_binary_sensor(var, config):

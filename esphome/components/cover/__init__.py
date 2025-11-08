@@ -1,4 +1,4 @@
-from esphome import automation
+from esphome import automation, controller
 from esphome.automation import Condition, maybe_simple_id
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
@@ -53,6 +53,8 @@ DEVICE_CLASSES = [
     DEVICE_CLASS_WINDOW,
 ]
 
+COMPONENT_CLASS = "esphome/cover"
+
 cover_ns = cg.esphome_ns.namespace("cover")
 
 Cover = cover_ns.class_("Cover", cg.EntityBase)
@@ -95,6 +97,7 @@ CONF_ON_CLOSED = "on_closed"
 _COVER_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTCoverComponent),
@@ -181,6 +184,8 @@ async def setup_cover_core_(var, config):
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
+
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_cover(var, config):

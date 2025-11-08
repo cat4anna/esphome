@@ -313,6 +313,9 @@ void MQTTClientComponent::check_connected() {
 
   for (MQTTComponent *component : this->children_)
     component->schedule_resend_state();
+
+  if (handler)
+    handler->on_connected();
 }
 
 void MQTTClientComponent::loop() {
@@ -354,6 +357,8 @@ void MQTTClientComponent::loop() {
       reason_s = LOG_STR("WiFi disconnected");
     }
     ESP_LOGW(TAG, "Disconnected: %s", LOG_STR_ARG(reason_s));
+    if (handler)
+      handler->on_offline();
     this->disconnect_reason_.reset();
   }
 
@@ -691,12 +696,16 @@ void MQTTClientComponent::disable_discovery() {
   };
 }
 void MQTTClientComponent::on_shutdown() {
+  if (handler)
+    handler->on_closing();
   if (!this->shutdown_message_.topic.empty()) {
     yield();
     this->publish(this->shutdown_message_);
     yield();
   }
   this->mqtt_backend_.disconnect();
+  if (handler)
+    handler->on_closed();
 }
 
 void MQTTClientComponent::set_on_connect(mqtt_on_connect_callback_t &&callback) {

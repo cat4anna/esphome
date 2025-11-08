@@ -1,4 +1,4 @@
-from esphome import automation
+from esphome import automation, controller
 import esphome.codegen as cg
 from esphome.components import mqtt, time, web_server
 import esphome.config_validation as cv
@@ -28,6 +28,7 @@ from esphome.cpp_generator import MockObjClass
 CODEOWNERS = ["@rfdarter", "@jesserockz"]
 
 IS_PLATFORM_COMPONENT = True
+COMPONENT_CLASS = "esphome/date_time"
 
 datetime_ns = cg.esphome_ns.namespace("datetime")
 DateTimeBase = datetime_ns.class_("DateTimeBase", cg.EntityBase)
@@ -82,6 +83,7 @@ _DATETIME_SCHEMA = cv.ENTITY_BASE_SCHEMA.extend(
     )
     .extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
 ).add_extra(_validate_time_present)
 
 _DATETIME_SCHEMA.add_extra(entity_duplicate_validator("datetime"))
@@ -164,6 +166,7 @@ async def register_datetime(var, config):
     cg.add(getattr(cg.App, f"register_{entity_type}")(var))
     CORE.register_platform_component(entity_type, var)
     await setup_datetime_core_(var, config)
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def new_datetime(config, *args):

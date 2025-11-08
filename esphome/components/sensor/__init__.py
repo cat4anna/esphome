@@ -1,7 +1,7 @@
 import logging
 import math
 
-from esphome import automation
+from esphome import automation, controller
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
 import esphome.config_validation as cv
@@ -187,6 +187,8 @@ validate_state_class = cv.enum(STATE_CLASSES, lower=True, space="_")
 
 IS_PLATFORM_COMPONENT = True
 
+COMPONENT_CLASS = "esphome/sensor"
+
 
 def validate_send_first_at(value):
     send_first_at = value.get(CONF_SEND_FIRST_AT)
@@ -292,6 +294,7 @@ validate_device_class = cv.one_of(*DEVICE_CLASSES, lower=True, space="_")
 _SENSOR_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTSensorComponent),
@@ -912,6 +915,8 @@ async def setup_sensor_core_(var, config):
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
+
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_sensor(var, config):

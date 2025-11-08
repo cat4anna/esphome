@@ -1,4 +1,4 @@
-from esphome import automation
+from esphome import automation, controller
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
 import esphome.config_validation as cv
@@ -31,6 +31,9 @@ DEVICE_CLASSES = [
     DEVICE_CLASS_MOTION,
 ]
 
+COMPONENT_CLASS = "esphome/event"
+
+
 event_ns = cg.esphome_ns.namespace("event")
 Event = event_ns.class_("Event", cg.EntityBase)
 EventPtr = Event.operator("ptr")
@@ -44,6 +47,7 @@ validate_device_class = cv.one_of(*DEVICE_CLASSES, lower=True, space="_")
 _EVENT_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTEventComponent),
@@ -105,6 +109,8 @@ async def setup_event_core_(var, config, *, event_types: list[str]):
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
+
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_event(var, config, *, event_types: list[str]):

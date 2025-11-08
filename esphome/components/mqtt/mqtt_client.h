@@ -95,6 +95,17 @@ enum MQTTClientState {
   MQTT_CLIENT_CONNECTED,
 };
 
+struct MqttStateHandler {
+  // Called after connection is initiated
+  virtual void on_connected() = 0;
+  // Clean disconnect started
+  virtual void on_closing() = 0;
+  // Clean disconnect
+  virtual void on_closed() = 0;
+  // Unexpected connection loss
+  virtual void on_offline() = 0;
+};
+
 class MQTTComponent;
 
 class MQTTClientComponent : public Component {
@@ -116,6 +127,9 @@ class MQTTClientComponent : public Component {
 
   /// Set the keep alive time in seconds, every 0.7*keep_alive a ping will be sent.
   void set_keep_alive(uint16_t keep_alive_s);
+
+  /// Set handler for mqtt connection state changes
+  void set_handler(MqttStateHandler *handler) { this->handler = handler; }
 
   /** Set the Home Assistant discovery info
    *
@@ -336,7 +350,7 @@ class MQTTClientComponent : public Component {
   uint32_t last_connected_{0};
   optional<MQTTClientDisconnectReason> disconnect_reason_{};
   CallbackManager<MQTTBackend::on_disconnect_callback_t> on_disconnect_;
-
+  MqttStateHandler *handler = nullptr;
   bool publish_nan_as_none_{false};
   bool wait_for_connection_{false};
 };

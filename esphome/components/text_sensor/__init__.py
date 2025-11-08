@@ -1,4 +1,4 @@
-from esphome import automation
+from esphome import automation, controller
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
 import esphome.config_validation as cv
@@ -33,6 +33,9 @@ DEVICE_CLASSES = [
 
 
 IS_PLATFORM_COMPONENT = True
+
+COMPONENT_CLASS = "esphome/text_sensor"
+
 
 text_sensor_ns = cg.esphome_ns.namespace("text_sensor")
 TextSensor = text_sensor_ns.class_("TextSensor", cg.EntityBase)
@@ -140,6 +143,7 @@ validate_device_class = cv.one_of(*DEVICE_CLASSES, lower=True, space="_")
 _TEXT_SENSOR_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTTextSensor),
@@ -221,6 +225,8 @@ async def setup_text_sensor_core_(var, config):
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
+
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_text_sensor(var, config):

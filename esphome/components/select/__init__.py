@@ -1,4 +1,4 @@
-from esphome import automation
+from esphome import automation, controller
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
 import esphome.config_validation as cv
@@ -22,6 +22,9 @@ from esphome.cpp_generator import MockObjClass
 
 CODEOWNERS = ["@esphome/core"]
 IS_PLATFORM_COMPONENT = True
+
+COMPONENT_CLASS = "esphome/select"
+
 
 select_ns = cg.esphome_ns.namespace("select")
 Select = select_ns.class_("Select", cg.EntityBase)
@@ -51,6 +54,7 @@ SELECT_OPERATION_OPTIONS = {
 _SELECT_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTSelectComponent),
@@ -103,6 +107,8 @@ async def setup_select_core_(var, config, *, options: list[str]):
 
     if web_server_config := config.get(CONF_WEB_SERVER):
         await web_server.add_entity_config(var, web_server_config)
+
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_select(var, config, *, options: list[str]):

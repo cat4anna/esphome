@@ -1,4 +1,4 @@
-from esphome import automation
+from esphome import automation, controller
 from esphome.automation import Condition, maybe_simple_id
 import esphome.codegen as cg
 from esphome.components import mqtt, web_server
@@ -32,6 +32,8 @@ DEVICE_CLASSES = [
     DEVICE_CLASS_OUTLET,
     DEVICE_CLASS_SWITCH,
 ]
+
+COMPONENT_CLASS = "esphome/switch"
 
 switch_ns = cg.esphome_ns.namespace("switch_")
 Switch = switch_ns.class_("Switch", cg.EntityBase)
@@ -74,6 +76,7 @@ validate_device_class = cv.one_of(*DEVICE_CLASSES, lower=True)
 _SWITCH_SCHEMA = (
     cv.ENTITY_BASE_SCHEMA.extend(web_server.WEBSERVER_SORTING_SCHEMA)
     .extend(cv.MQTT_COMMAND_COMPONENT_SCHEMA)
+    .extend(controller.gen_component_schema(COMPONENT_CLASS))
     .extend(
         {
             cv.OnlyWith(CONF_MQTT_ID, "mqtt"): cv.declare_id(mqtt.MQTTSwitchComponent),
@@ -165,6 +168,8 @@ async def setup_switch_core_(var, config):
         cg.add(var.set_device_class(device_class))
 
     cg.add(var.set_restore_mode(config[CONF_RESTORE_MODE]))
+
+    await controller.setup_component(COMPONENT_CLASS, var, config)
 
 
 async def register_switch(var, config):
